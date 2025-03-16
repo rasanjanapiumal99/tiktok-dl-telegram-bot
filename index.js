@@ -53,20 +53,28 @@ async function fetchTikTokDetails(url) {
   }
 }
 
-// Function to download a file from a URL
-async function downloadFile(url, filePath) {
-  const response = await axios({
-    url,
-    responseType: 'stream',
-  });
+// Function to download a file from a URL with retries
+async function downloadFileWithRetry(url, filePath, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await axios({
+        url,
+        responseType: 'stream',
+        timeout: 30000, // 30 seconds timeout
+      });
 
-  const writer = fs.createWriteStream(filePath);
-  response.data.pipe(writer);
+      const writer = fs.createWriteStream(filePath);
+      response.data.pipe(writer);
 
-  return new Promise((resolve, reject) => {
-    writer.on('finish', resolve);
-    writer.on('error', reject);
-  });
+      return new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+    } catch (error) {
+      console.error(`Attempt ${i + 1} failed:`, error);
+      if (i === retries - 1) throw error; // Throw error after last retry
+    }
+  }
 }
 
 // Listen for any message
@@ -212,8 +220,16 @@ bot.on('callback_query', async (callbackQuery) => {
     }
 
     try {
+      // Delete the "Choose a download option" message and buttons
+      await bot.deleteMessage(chatId, callbackQuery.message.message_id);
+
+      // Show typing indicator (animated)
+      await bot.sendChatAction(chatId, 'typing');
+
       // Notify the user that the file is being downloaded
-      await bot.answerCallbackQuery(callbackQuery.id, { text: 'Downloading...' });
+      const downloadingMessage = await bot.sendMessage(chatId, '📥 *Downloading...*', {
+        parse_mode: 'Markdown',
+      });
 
       // Determine the file type based on the callback_data
       const fileType = data.startsWith('mp3') ? 'mp3' : 'mp4';
@@ -222,8 +238,18 @@ bot.on('callback_query', async (callbackQuery) => {
       const fileName = generateUniqueFilename(userId, url, fileType);
       const filePath = path.join(__dirname, fileName);
 
-      // Download the file
-      await downloadFile(url, filePath);
+      // Download the file with retries
+      await downloadFileWithRetry(url, filePath);
+
+      // Update the message to "Uploading..."
+      await bot.editMessageText('📤 *Uploading...*', {
+        chat_id: chatId,
+        message_id: downloadingMessage.message_id,
+        parse_mode: 'Markdown',
+      });
+
+      // Show typing indicator (animated)
+      await bot.sendChatAction(chatId, 'upload_video'); // or 'upload_audio' for MP3
 
       // Send the file to the user
       if (fileType === 'mp3') {
@@ -231,6 +257,9 @@ bot.on('callback_query', async (callbackQuery) => {
       } else {
         await bot.sendVideo(chatId, filePath); // Send the file path instead of a buffer
       }
+
+      // Delete the "Uploading..." message
+      await bot.deleteMessage(chatId, downloadingMessage.message_id);
 
       // Delete the downloaded file
       fs.unlinkSync(filePath);
@@ -260,6 +289,5 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  bot.startPolling();
   console.log('Bot is running...');
 });
