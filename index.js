@@ -108,7 +108,7 @@ bot.on('message', async (msg) => {
   }
 
   // Validate the TikTok URL
-  const tiktokUrlPattern = /https?:\/\/(www\.|vm\.|m\.)?tiktok\.com\/(.+)/;
+  const tiktokUrlPattern = /https?:\/\/(www\.|vm\.|m\.|vt\.)?tiktok\.com\/(.+)/;
   if (!tiktokUrlPattern.test(text)) {
     bot.sendMessage(chatId, 'Please send a valid TikTok video URL.');
     return;
